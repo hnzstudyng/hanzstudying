@@ -1,19 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
-import crypto from 'crypto';
 
 const SESSION_SECRET = process.env.SESSION_SECRET!;
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000; // 7 days
 
-function verifySessionToken(token: string): boolean {
+async function verifySessionToken(token: string): Promise<boolean> {
   try {
-    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+    const decoded = atob(token);
     const [payload, hash] = decoded.split('.');
 
     if (!payload || !hash) return false;
 
-    const hmac = crypto.createHmac('sha256', SESSION_SECRET);
-    hmac.update(payload);
-    const expectedHash = hmac.digest('hex');
+    // Use Web Crypto API for HMAC
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(SESSION_SECRET);
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    const signature = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(payload)
+    );
+
+    const hashArray = Array.from(new Uint8Array(signature));
+    const expectedHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 
     if (hash !== expectedHash) return false;
 
@@ -30,7 +45,7 @@ function verifySessionToken(token: string): boolean {
   }
 }
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Allow login page and API calls without session
@@ -41,7 +56,7 @@ export function middleware(req: NextRequest) {
   // Check for session token
   const token = req.cookies.get('session')?.value;
 
-  if (!token || !verifySessionToken(token)) {
+  if (!token || !(await verifySessionToken(token))) {
     // Redirect to login if accessing protected routes
     if (pathname.startsWith('/dashboard') || pathname.startsWith('/api/articles')) {
       return NextResponse.redirect(new URL('/login', req.url));
