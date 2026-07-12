@@ -1,5 +1,4 @@
 import { cookies } from 'next/headers';
-import crypto from 'crypto';
 
 const SESSION_SECRET = process.env.SESSION_SECRET!;
 const OWNER_PASSWORD = process.env.OWNER_PASSWORD!;
@@ -10,28 +9,64 @@ export interface SessionData {
   createdAt: number;
 }
 
-function hashPassword(password: string): string {
-  return crypto.createHash('sha256').update(password).digest('hex');
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(password);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-function createSessionToken(data: SessionData): string {
+async function createSessionToken(data: SessionData): Promise<string> {
   const payload = JSON.stringify(data);
-  const hmac = crypto.createHmac('sha256', SESSION_SECRET);
-  hmac.update(payload);
-  const hash = hmac.digest('hex');
-  return Buffer.from(`${payload}.${hash}`).toString('base64');
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(SESSION_SECRET);
+  
+  const key = await crypto.subtle.importKey(
+    'raw',
+    keyData,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+
+  const signature = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(payload)
+  );
+
+  const hashArray = Array.from(new Uint8Array(signature));
+  const hash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return btoa(`${payload}.${hash}`);
 }
 
-function verifySessionToken(token: string): SessionData | null {
+async function verifySessionToken(token: string): Promise<SessionData | null> {
   try {
-    const decoded = Buffer.from(token, 'base64').toString('utf-8');
+    const decoded = atob(token);
     const [payload, hash] = decoded.split('.');
 
     if (!payload || !hash) return null;
 
-    const hmac = crypto.createHmac('sha256', SESSION_SECRET);
-    hmac.update(payload);
-    const expectedHash = hmac.digest('hex');
+    const encoder = new TextEncoder();
+    const keyData = encoder.encode(SESSION_SECRET);
+    
+    const key = await crypto.subtle.importKey(
+      'raw',
+      keyData,
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+
+    const signature = await crypto.subtle.sign(
+      'HMAC',
+      key,
+      encoder.encode(payload)
+    );
+
+    const hashArray = Array.from(new Uint8Array(signature));
+    const expectedHash = hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
 
     if (hash !== expectedHash) return null;
 
@@ -49,7 +84,11 @@ function verifySessionToken(token: string): SessionData | null {
 }
 
 export async function verifyPassword(password: string): Promise<boolean> {
-  return hashPassword(password) === hashPassword(OWNER_PASSWORD);
+  const [inputHash, ownerHash] = await Promise.all([
+    hashPassword(password),
+    hashPassword(OWNER_PASSWORD),
+  ]);
+  return inputHash === ownerHash;
 }
 
 export async function createSession(): Promise<string> {
@@ -66,7 +105,7 @@ export async function getSession(): Promise<SessionData | null> {
 
   if (!token) return null;
 
-  return verifySessionToken(token);
+  return await verifySessionToken(token);
 }
 
 export async function setSessionCookie(token: string): Promise<void> {

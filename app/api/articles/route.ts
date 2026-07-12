@@ -10,7 +10,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    await connectDB();
+    try {
+      await connectDB();
+    } catch (dbError) {
+      return NextResponse.json({
+        error: 'Database connection failed. Please check your MONGODB_URI environment variable.'
+      }, { status: 503 });
+    }
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search');

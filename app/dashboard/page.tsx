@@ -10,10 +10,11 @@ export default function DashboardPage() {
   const [search, setSearch] = useState('');
   const [selectedTag, setSelectedTag] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const { articles, isLoading } = useArticles('published', search, selectedTag, selectedCategory);
+  const { articles, isLoading, isError } = useArticles('published', search, selectedTag, selectedCategory);
 
-  const allTags = Array.from(new Set(articles.flatMap(a => a.tags)));
-  const allCategories = Array.from(new Set(articles.map(a => a.category)));
+  const safeArticles = Array.isArray(articles) ? articles : [];
+  const allTags = Array.from(new Set(safeArticles.flatMap(a => a.tags || [])));
+  const allCategories = Array.from(new Set(safeArticles.map(a => a.category || 'General')));
 
   return (
     <div className="flex-1 flex flex-col">
@@ -23,7 +24,7 @@ export default function DashboardPage() {
           <div>
             <h1 className="text-3xl font-bold text-foreground">Published Articles</h1>
             <p className="text-muted-foreground mt-1">
-              {articles.length} article{articles.length !== 1 ? 's' : ''} published
+              {safeArticles.length} article{safeArticles.length !== 1 ? 's' : ''} published
             </p>
           </div>
           <Link href="/dashboard/new">
@@ -62,7 +63,7 @@ export default function DashboardPage() {
               </svg>
             </div>
           </div>
-        ) : articles.length === 0 ? (
+        ) : safeArticles.length === 0 ? (
           <div className="text-center py-12">
             <svg className="w-16 h-16 text-muted-foreground mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -75,9 +76,14 @@ export default function DashboardPage() {
               </Button>
             </Link>
           </div>
+        ) : isError ? (
+          <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200 px-6 py-4 rounded-lg text-center">
+            <p className="font-semibold mb-2">Unable to load articles</p>
+            <p className="text-sm">Please check that your MongoDB connection is properly configured.</p>
+          </div>
         ) : (
           <div className="grid gap-4">
-            {articles.map((article) => (
+            {safeArticles.map((article) => (
               <ArticleCard key={article._id} article={article} />
             ))}
           </div>
